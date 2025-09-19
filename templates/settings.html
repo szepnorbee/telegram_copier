@@ -1,1 +1,231 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beállítások - Telegram Üzenetmásoló</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fab fa-telegram-plane me-2"></i>
+                Telegram Üzenetmásoló
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="{{ url_for('index') }}">
+                    <i class="fas fa-home me-1"></i>
+                    Főoldal
+                </a>
+            </div>
+        </div>
+    </nav>
 
+    <div class="container mt-4">
+        <!-- Flash üzenetek -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-cog me-2"></i>
+                            Alkalmazás Beállítások
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('save_settings') }}">
+                            <!-- Telegram API Beállítások -->
+                            <div class="row mb-4">
+                                <div class="col-12">
+                                    <h6 class="text-primary">
+                                        <i class="fab fa-telegram-plane me-2"></i>
+                                        Telegram API Beállítások
+                                    </h6>
+                                    <hr>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="api_id" class="form-label">API ID <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="api_id" name="api_id" 
+                                               value="{{ config.api_id }}" required>
+                                        <div class="form-text">
+                                            Telegram API azonosító (my.telegram.org-ról)
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="api_hash" class="form-label">API Hash <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="api_hash" name="api_hash" 
+                                               value="{{ config.api_hash }}" required>
+                                        <div class="form-text">
+                                            Telegram API hash (my.telegram.org-ról)
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="mb-3">
+                                        <label for="phone_number" class="form-label">Telefonszám</label>
+                                        <input type="tel" class="form-control" id="phone_number" name="phone_number" 
+                                               value="{{ config.phone_number }}" placeholder="+36301234567">
+                                        <div class="form-text">
+                                            Telefonszám nemzetközi formátumban (pl. +36301234567)
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Csatorna Beállítások -->
+                            <div class="row mb-4">
+                                <div class="col-12">
+                                    <h6 class="text-primary">
+                                        <i class="fas fa-exchange-alt me-2"></i>
+                                        Csatorna Beállítások
+                                    </h6>
+                                    <hr>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="source_channel_id" class="form-label">Forrás Csatorna</label>
+                                        {% if channels %}
+                                            <select class="form-select" id="source_channel_id" name="source_channel_id">
+                                                <option value="">Válasszon csatornát...</option>
+                                                {% for channel in channels %}
+                                                    <option value="{{ channel.id }}" 
+                                                            {% if config.source_channel_id == channel.id|string %}selected{% endif %}>
+                                                        {{ channel.title }} ({{ channel.username or channel.id }})
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                        {% else %}
+                                            <input type="text" class="form-control" id="source_channel_id" name="source_channel_id" 
+                                                   value="{{ config.source_channel_id }}" placeholder="Csatorna ID vagy @username">
+                                            <div class="form-text text-warning">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>
+                                                Jelentkezzen be a Telegramra a csatornák automatikus betöltéséhez
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="destination_channel_id" class="form-label">Cél Csatorna</label>
+                                        {% if channels %}
+                                            <select class="form-select" id="destination_channel_id" name="destination_channel_id">
+                                                <option value="">Válasszon csatornát...</option>
+                                                {% for channel in channels %}
+                                                    <option value="{{ channel.id }}" 
+                                                            {% if config.destination_channel_id == channel.id|string %}selected{% endif %}>
+                                                        {{ channel.title }} ({{ channel.username or channel.id }})
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                        {% else %}
+                                            <input type="text" class="form-control" id="destination_channel_id" name="destination_channel_id" 
+                                                   value="{{ config.destination_channel_id }}" placeholder="Csatorna ID vagy @username">
+                                            <div class="form-text text-warning">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>
+                                                Jelentkezzen be a Telegramra a csatornák automatikus betöltéséhez
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                                    <i class="fas fa-arrow-left me-1"></i>
+                                    Vissza
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save me-1"></i>
+                                    Beállítások Mentése
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-question-circle me-2"></i>
+                            Segítség
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>Telegram API megszerzése:</h6>
+                        <ol class="text-muted small">
+                            <li>Látogasson el a <a href="https://my.telegram.org" target="_blank">my.telegram.org</a> oldalra</li>
+                            <li>Jelentkezzen be a telefonszámával</li>
+                            <li>Válassza az "API development tools" menüpontot</li>
+                            <li>Hozzon létre egy új alkalmazást</li>
+                            <li>Másolja ki az API ID-t és API Hash-t</li>
+                        </ol>
+
+                        <h6 class="mt-3">Csatorna ID megszerzése:</h6>
+                        <p class="text-muted small">
+                            A csatorna ID-t megtalálhatja a csatorna információi között, vagy használhatja 
+                            a @username formátumot is (pl. @mychannel).
+                        </p>
+
+                        <div class="alert alert-info small">
+                            <i class="fas fa-info-circle me-1"></i>
+                            <strong>Fontos:</strong> Az alkalmazás csak olyan csatornákhoz fér hozzá, 
+                            amelyeknek tagja a bejelentkezett felhasználó.
+                        </div>
+                    </div>
+                </div>
+
+                {% if channels %}
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Elérhető Csatornák
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="list-group list-group-flush">
+                            {% for channel in channels[:5] %}
+                                <div class="list-group-item px-0 py-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">{{ channel.title }}</h6>
+                                            <small class="text-muted">{{ channel.username or channel.id }}</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                            {% if channels|length > 5 %}
+                                <div class="list-group-item px-0 py-2 text-center text-muted">
+                                    ... és még {{ channels|length - 5 }} csatorna
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
