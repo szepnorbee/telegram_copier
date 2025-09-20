@@ -19,17 +19,41 @@ message_copier = None
 copier_thread = None
 is_copying = False
 
+# Aszinkron eseményhurok kezelése a Telethon számára
+def run_async_in_thread(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+# Kliens inicializálása az alkalmazás indításakor
+@app.before_first_request
+def initialize_telegram_client():
+    global telegram_client_manager
+    config = load_config()
+    telegram_client_manager = TelegramClientManager(
+        api_id=int(config.get('api_id', 0)),
+        api_hash=config.get('api_hash', ''),
+        session_file=os.path.join('data', 'session.session')
+    )
+    # A kliens elindítása egy külön szálon, hogy ne blokkolja a Flask-et
+    # és hogy a Telethon eseményhurok futhasson
+    def start_telethon_client_thread():
+        asyncio.run(telegram_client_manager.start_client())
+    
+    client_thread = threading.Thread(target=start_telethon_client_thread)
+    client_thread.daemon = True
+    client_thread.start()
+
 @app.route('/')
-def index():
+async def index():
     """Főoldal - alkalmazás állapotának megjelenítése"""
     global is_copying, telegram_client_manager
     
     config = load_config()
     
-    # Ellenőrizzük, hogy be van-e jelentkezve a Telegram
     is_logged_in = False
     if telegram_client_manager:
-        is_logged_in = telegram_client_manager.is_logged_in()
+        is_logged_in = await telegram_client_manager.is_logged_in_async()
     
     return render_template('index.html', 
                          config=config, 
@@ -37,17 +61,16 @@ def index():
                          is_logged_in=is_logged_in)
 
 @app.route('/settings')
-def settings():
+async def settings():
     """Beállítások oldal"""
     global telegram_client_manager
     
     config = load_config()
     
-    # Csatornák listájának lekérése, ha be van jelentkezve
     channels = []
-    if telegram_client_manager and telegram_client_manager.is_logged_in():
+    if telegram_client_manager and await telegram_client_manager.is_logged_in_async():
         try:
-            channels = asyncio.run(telegram_client_manager.get_channels())
+            channels = await telegram_client_manager.get_channels()
         except Exception as e:
             flash(f'Hiba a csatornák lekérése során: {str(e)}', 'error')
     
@@ -56,6 +79,7 @@ def settings():
 @app.route('/save_settings', methods=['POST'])
 def save_settings():
     """Beállítások mentése"""
+    global telegram_client_manager
     try:
         config_data = {
             'api_id': request.form.get('api_id'),
@@ -65,7 +89,6 @@ def save_settings():
             'phone_number': request.form.get('phone_number', '')
         }
         
-        # Validáció
         if not config_data['api_id'] or not config_data['api_hash']:
             flash('API ID és API Hash megadása kötelező!', 'error')
             return redirect(url_for('settings'))
@@ -73,13 +96,17 @@ def save_settings():
         save_config(config_data)
         flash('Beállítások sikeresen mentve!', 'success')
         
+        # Frissítsük a telegram_client_manager-t az új API adatokkal
+        telegram_client_manager.api_id = int(config_data['api_id'])
+        telegram_client_manager.api_hash = config_data['api_hash']
+        
     except Exception as e:
         flash(f'Hiba a beállítások mentése során: {str(e)}', 'error')
     
     return redirect(url_for('settings'))
 
 @app.route('/login_telegram', methods=['POST'])
-def login_telegram():
+async def login_telegram():
     """Telegram bejelentkezés indítása"""
     global telegram_client_manager
     
@@ -89,19 +116,11 @@ def login_telegram():
         if not config.get('api_id') or not config.get('api_hash'):
             return jsonify({'success': False, 'message': 'API ID és API Hash megadása szükséges!'})
         
-        # Telegram kliens manager inicializálása
-        telegram_client_manager = TelegramClientManager(
-            api_id=int(config['api_id']),
-            api_hash=config['api_hash'],
-            session_file=os.path.join('data', 'session.session')
-        )
-        
         phone_number = request.json.get('phone_number')
         if not phone_number:
             return jsonify({'success': False, 'message': 'Telefonszám megadása kötelező!'})
         
-        # Bejelentkezés indítása
-        result = asyncio.run(telegram_client_manager.start_login(phone_number))
+        result = await telegram_client_manager.start_login(phone_number)
         
         if result['success']:
             return jsonify({'success': True, 'message': 'Kód elküldve! Kérjük, adja meg a kapott kódot.'})
@@ -112,7 +131,7 @@ def login_telegram():
         return jsonify({'success': False, 'message': f'Hiba: {str(e)}'})
 
 @app.route('/verify_code', methods=['POST'])
-def verify_code():
+async def verify_code():
     """Telegram bejelentkezési kód ellenőrzése"""
     global telegram_client_manager
     
@@ -124,7 +143,7 @@ def verify_code():
         if not telegram_client_manager:
             return jsonify({'success': False, 'message': 'Nincs aktív bejelentkezési folyamat!'})
         
-        result = asyncio.run(telegram_client_manager.verify_code(code))
+        result = await telegram_client_manager.verify_code(code)
         
         if result['success']:
             return jsonify({'success': True, 'message': 'Sikeres bejelentkezés!'})
@@ -135,7 +154,7 @@ def verify_code():
         return jsonify({'success': False, 'message': f'Hiba: {str(e)}'})
 
 @app.route('/start_copier', methods=['POST'])
-def start_copier():
+async def start_copier():
     """Üzenetmásoló indítása"""
     global message_copier, copier_thread, is_copying, telegram_client_manager
     
@@ -148,10 +167,9 @@ def start_copier():
         if not config.get('source_channel_id') or not config.get('destination_channel_id'):
             return jsonify({'success': False, 'message': 'Forrás és cél csatorna megadása kötelező!'})
         
-        if not telegram_client_manager or not telegram_client_manager.is_logged_in():
+        if not telegram_client_manager or not await telegram_client_manager.is_logged_in_async():
             return jsonify({'success': False, 'message': 'Nincs bejelentkezve a Telegramra!'})
         
-        # Message copier inicializálása
         message_copier = MessageCopier(
             telegram_client=telegram_client_manager.client,
             source_channel_id=config['source_channel_id'],
@@ -197,13 +215,13 @@ def stop_copier():
         return jsonify({'success': False, 'message': f'Hiba: {str(e)}'})
 
 @app.route('/status')
-def status():
+async def status():
     """Alkalmazás állapotának lekérése (AJAX-hoz)"""
     global is_copying, telegram_client_manager
     
     is_logged_in = False
     if telegram_client_manager:
-        is_logged_in = telegram_client_manager.is_logged_in()
+        is_logged_in = await telegram_client_manager.is_logged_in_async()
     
     return jsonify({
         'is_copying': is_copying,
@@ -211,8 +229,6 @@ def status():
     })
 
 if __name__ == '__main__':
-    # Adatok könyvtár létrehozása, ha nem létezik
     os.makedirs('data', exist_ok=True)
-    
-    # Flask alkalmazás indítása
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
+
