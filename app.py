@@ -26,23 +26,7 @@ def run_async_in_thread(coro):
     return loop.run_until_complete(coro)
 
 # Kliens inicializálása az alkalmazás indításakor
-@app.before_first_request
-def initialize_telegram_client():
-    global telegram_client_manager
-    config = load_config()
-    telegram_client_manager = TelegramClientManager(
-        api_id=int(config.get('api_id', 0)),
-        api_hash=config.get('api_hash', ''),
-        session_file=os.path.join('data', 'session.session')
-    )
-    # A kliens elindítása egy külön szálon, hogy ne blokkolja a Flask-et
-    # és hogy a Telethon eseményhurok futhasson
-    def start_telethon_client_thread():
-        asyncio.run(telegram_client_manager.start_client())
-    
-    client_thread = threading.Thread(target=start_telethon_client_thread)
-    client_thread.daemon = True
-    client_thread.start()
+
 
 @app.route('/')
 async def index():
@@ -230,5 +214,22 @@ async def status():
 
 if __name__ == '__main__':
     os.makedirs('data', exist_ok=True)
+
+    # Initialize Telegram client manager here
+    config = load_config()
+    telegram_client_manager = TelegramClientManager(
+        api_id=int(config.get('api_id', 0)),
+        api_hash=config.get('api_hash', ''),
+        session_file=os.path.join('data', 'session.session')
+    )
+    # Start the client in a separate thread to manage its asyncio event loop
+    def start_telethon_client_thread():
+        asyncio.run(telegram_client_manager.start_client())
+    
+    client_thread = threading.Thread(target=start_telethon_client_thread)
+    client_thread.daemon = True
+    client_thread.start()
+
     app.run(host='0.0.0.0', port=5001, debug=True)
+
 
